@@ -5,4 +5,4 @@ www.immunosigdb.com
 
 Or
 
-immunosigdb-22bc85da9f27.herokuapp.com/
+www.immunosigdb-22bc85da9f27.herokuapp.com
