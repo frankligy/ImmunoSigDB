@@ -9,6 +9,7 @@ from ast import literal_eval
 from dash import Dash, Input, Output, callback, dash_table, html, dcc, State
 import subprocess
 import dash
+import time
 
 mpl.rcParams['pdf.fonttype'] = 42
 mpl.rcParams['ps.fonttype'] = 42
@@ -22,43 +23,49 @@ mpl.rcParams['font.family'] = 'Arial'
 def run_gsea(peptides,db,n_clicks):
 
     if n_clicks > 0:
-        # textarea is a string with /n
-        peptides = peptides.split('\n')
-        data = []
-        n = len(peptides)
-        for i,peptide in enumerate(peptides):
-            data.append((peptide,n-i))
-        rnk = pd.DataFrame.from_records(data,columns=['peptide','score']).set_index(keys='peptide')
+        try:
+            # textarea is a string with /n
+            peptides = [pep.upper() for pep in peptides.split('\n')]
+            data = []
+            n = len(peptides)
+            for i,peptide in enumerate(peptides):
+                data.append((peptide,n-i))
+            rnk = pd.DataFrame.from_records(data,columns=['peptide','score']).set_index(keys='peptide')
 
-        final = pd.read_csv('/static/final.txt',sep='\t')
-        mapping = {
-            'phenotype':'phenotype',
-            'distance':'distance_to_star',
-            'mSigDB':'mSigDB'
-        }
-        if db != 'All':
-            final = final.loc[final['category']==mapping[db],:]
-        gene_sets = {row.ontology:row.peps.split(',') for row in final.itertuples()}
+            final = pd.read_csv('/static/final.txt',sep='\t')
+            mapping = {
+                'phenotype':'phenotype',
+                'distance':'distance_to_star',
+                'mSigDB':'mSigDB'
+            }
+            if db != 'All':
+                final = final.loc[final['category']==mapping[db],:]
+            gene_sets = {row.ontology:row.peps.split(',') for row in final.itertuples()}
 
-        pre_res = gp.prerank(rnk=rnk,
-                             gene_sets=gene_sets,
-                             threads=4,
-                             min_size=1,
-                             max_size=1000,
-                             permutation_num=100,
-                             outdir=None,
-                             seed=6,
-                             verbose=True)
-        pre_res.res2d.to_csv('/static/result.txt',sep='\t')
-        from gseapy import gseaplot2
-        terms = pre_res.res2d['Term'][0:5]
-        gseaplot2(terms=terms,
-                RESs=[pre_res.results[term]['RES'] for term in terms],
-                hits=[pre_res.results[term]['hits'] for term in terms],
-                rank_metric=pre_res.ranking,
-                ofname='/static/result.png')
-        
-        return pre_res.res2d.to_dict('records'), '/static/result.png'
+            pre_res = gp.prerank(rnk=rnk,
+                                 gene_sets=gene_sets,
+                                 threads=4,
+                                 min_size=1,
+                                 max_size=1000,
+                                 permutation_num=100,
+                                 outdir=None,
+                                 seed=6,
+                                 verbose=True)
+            pre_res.res2d.to_csv('/static/result.txt',sep='\t')
+            from gseapy import gseaplot2
+            terms = pre_res.res2d['Term'][0:5]
+            timestamp = time.time()
+            subprocess.run('rm -f ./static/result_*.png',shell=True)
+            gseaplot2(terms=terms,
+                      RESs=[pre_res.results[term]['RES'] for term in terms],
+                      hits=[pre_res.results[term]['hits'] for term in terms],
+                      rank_metric=pre_res.ranking,
+                      ofname='/static/result_{}.png'.format(timestamp))
+            
+            return pre_res.res2d.to_dict('records'), './static/result_{}.png'.format(timestamp)
+
+        except:
+            return dash.no_update, dash.no_update
 
     else:
         return dash.no_update, dash.no_update
@@ -68,16 +75,9 @@ def run_gsea(peptides,db,n_clicks):
 def download(n_clicks):
 
     result_txt = '/static/result.txt'
-    result_png = '/static/result.png'
-    zip_path = '/static/ImmunoSigDB_results.zip'
-
 
     if n_clicks > 0:
-        if os.path.exists(zip_path):
-            os.remove(zip_path)
-        subprocess.run(['zip','-j',zip_path,result_txt,result_png])
-
-        return dcc.send_file(zip_path)
+        return dcc.send_file(result_txt)
     
     else:
         return dash.no_update
@@ -91,14 +91,21 @@ app = Dash(__name__,assets_folder='/assets')
 server = app.server
 app.title = 'ImmunoSigDB'
 
+textarea_placeholder = '''Please type peptide sequence in this textbox\n
+One peptide per line\n
+At least two peptides\n
+Dropdown menu select database\n
+Click Run button\n
+Enrichment results will be on the right'''
+
 app.layout = html.Div(
     [
         html.Div(
         [
             html.Div(html.Img(src='/static/logo.png',className='actual_logo'), className='logo'),
             html.Div(html.P(['Developed by ', html.A('Guangyuan(Frank) Li',href='https://github.com/frankligy',target='_blank')]),className='develper'),
-            html.Div(dcc.Textarea(id='peptide_input',className='peptide_textarea'),className='textarea'),
-            html.Div(dcc.Dropdown(id='db_type',className='peptide_dropdown',options=['All','phenotype','distance','mSigDB','differential'],value='All'),className='dropdown'),
+            html.Div(dcc.Textarea(id='peptide_input',className='peptide_textarea',placeholder=textarea_placeholder),className='textarea'),
+            html.Div(dcc.Dropdown(id='db_type',className='peptide_dropdown',options=['All','phenotype','distance','mSigDB'],value='All'),className='dropdown'),
             html.Div(html.Button('Run',id='submit_button',n_clicks=0,className='actual_button'),className='run_button')
         ],className='left_div'),
 
